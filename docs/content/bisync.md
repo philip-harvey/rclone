@@ -13,11 +13,12 @@ description: "Bidirectional cloud sync solution in rclone"
 - Run bisync with the `--resync` flag, specifying the paths
   to the local and remote sync directory roots.
 - For successive sync runs, leave off the `--resync` flag.
-- Consider using a [filters file](#filtering)
-  for excluding unnecessary files and directories from the sync.
-- Consider setting up the [--check-access](#check-access-option)
-  feature for safety.
-- On Linux, consider setting up a [crontab entry](#cron).
+- Consider using a [filters file](#filtering) for excluding
+  unnecessary files and directories from the sync.
+- Consider setting up the [--check-access](#check-access-option) feature
+  for safety.
+- On Linux, consider setting up a [crontab entry](#cron). bisync can
+  safely run in concurrent cron jobs thanks to lock files it maintains.
 
 Here is a typical run log (with timestamps removed for clarity):
 
@@ -104,7 +105,7 @@ Optional Flags:
 ```
 
 Arbitrary rclone flags may be specified on the
-[bisync command](/commands/rclone_bisync/) line, e.g.
+[bisync command line](/commands/rclone_bisync/), for example
 `rclone bsync ./testdir/path1/ gdrive:testdir/path2/ --drive-skip-gdocs -v -v --timeout 10s`
 Note that interactions of various rclone flags with bisync process flow
 has not been fully tested yet.
@@ -140,7 +141,7 @@ This will effectively make both Path1 and Path2 filesystems contain a
 matching superset of all files. Path2 files that do not exist in Path1 will
 be copied to Path1, and the process will then sync the Path1 tree to Path2.
 
-The base directories on both the Path1 and Path2 filesystems must exist
+The base directories on the both Path1 and Path2 filesystems must exist
 or bisync will fail. This is required for safety - that bisync can verify
 that both paths are valid.
 
@@ -193,7 +194,7 @@ Also see the [all files changed](#all-files-changed) check.
 
 By using rclone filter features you can exclude file types or directory
 sub-trees from the sync.
-See [bisync filters](#filtering) and the generic
+See the [bisync filters](#filtering) section and generic
 [--filter-from](/filtering/#filter-from-read-filtering-patterns-from-a-file)
 documentation.
 An [example filters file](#example-filters-file) contains filters for
@@ -242,9 +243,10 @@ On each successive run it will:
   Changes include `New`, `Newer`, `Older`, and `Deleted` files.
 - Propagate changes on `path1` to `path2`, and vice-versa.
 
-Safety measures:
+### Safety measures
 
 - Lock file prevents multiple simultaneous runs when taking a while.
+  This can be particularly useful if bisync is run by cron scheduler.
 - Handle change conflicts non-destructively by creating
   `..path1` and `..path2` file versions.
 - File system access health check using `RCLONE_TEST` files
@@ -300,9 +302,10 @@ notice the change, and thus will not copy it to the other side.
 
 Note that on some cloud storage systems it is not possible to have file
 timestamps that match _precisely_ between the local and other filesystems.
-Bisync's approach to this problem is by tracking the Path1-to-Path1 and
-Path2-to-Path2 deltas on each side _separately_, and then applying
-the resulting changes on the other side.
+
+Bisync's approach to this problem is by tracking the changes on each side
+_separately_ over time with a local database of files in that side then
+applying the resulting changes on the other side.
 
 ### Error handling {#error-handling}
 
@@ -320,14 +323,16 @@ Most of these events come up due to a error status from an internal call.
 On such a critical error the `{...}.path1.lst` and `{...}.path2.lst`
 listing files are renamed to extension `.lst-err`, which blocks any future
 bisync runs (since the normal `.lst` files are not found).
+Bisync keeps them under `bisync` subdirectory of the rclone cache direcory,
+typically at `${HOME}/.cache/rclone/bisync/` on Linux.
 
 Some errors are considered temporary and re-running the bisync is not blocked.
 The _critical return_ blocks further bisync runs.
 
 ### Lock file
 
-When bisync is running, a lock file is created
-(typically at `~/.cache/rclone/bisync/PATH1..PATH2.lck` on Linux).
+When bisync is running, a lock file is created in the bisync working directory,
+typically at `~/.cache/rclone/bisync/PATH1..PATH2.lck` on Linux.
 If bisync should crash or hang, the lock file will remain in place and block
 any further runs of bisync _for the same paths_.
 Delete the lock file as part of debugging the situation.
@@ -363,15 +368,9 @@ It has not been fully tested with other services yet.
 If it works, or sorta works, please let us know and we'll update the list.
 Run the test suite to check for proper operation as described below.
 
-### Google docs
-
-Google docs exist as virtual files on Google Drive, and cannot be
-transferred to other filesystems natively.
-Bisync's handling of Google Doc files is to
-- flag them in the run log output as an FYI, and
-- ignore them for any file transfers, deletes, or syncs.
-
-See [Troubleshooting](#troubleshooting) for more info.
+First release of `rclone bisync` requires that underlying backend supported
+the modification time feature and will refuse to run otherwise.
+This limitation will be lifted in a future `rclone bisync` release.
 
 ### Concurrent modifications
 
@@ -687,13 +686,6 @@ See the [Runtime Error Handling](#error-handling) section.
 2021/05/12 00:49:40 ERROR : Bisync aborted. Must run --resync to recover.
 ```
 
-### Illegal filenames
-
-Some cloud services allow characters in filenames that are not legal on the
-local filesystem, such as `/`, `:`.
-bisync may fail when attempting to copy these files to the local filesystem.
-Consider renaming the offending file, or adding it to the `--filters-file`.
-
 ### Denied downloads of "infected" or "abusive" files
 
 Google Drive has a filter for certain file types (`.exe`, `.apk`, et cetera)
@@ -706,12 +698,14 @@ consider using the flag
 
 ### Google Doc files
 
-Google docs exist as virtual files on Google Drive. While it is possible to
-export a Google doc to a normal file (with `.xlsx` extension, for example),
-it's not possible to import a normal file back into a Google document.
+Google docs exist as virtual files on Google Drive and cannot be transferred
+to other filesystems natively. While it is possible to export a Google doc to
+a normal file (with `.xlsx` extension, for example), it's not possible
+to import a normal file back into a Google document.
 
-Note that bisync currently ignores Google docs. They will show up with a length
-of `-1` in the listings, and then bisync proceeds to flag and ignore them.
+Bisync's handling of Google Doc files is to flag them in the run log output
+for user's attention and ignore them for any file transfers, deletes, or syncs.
+They will show up with a length of `-1` in the listings.
 This bisync run is otherwise successful:
 
 ```
@@ -739,7 +733,7 @@ and an OwnCloud server, with output logged to a runlog file:
 #                Month (1-12 or Jan-Dec)
 #                     Day of Week (0-6 or Sun-Sat)
 #                         Command
-  */5  *    *    *    *   /path/to/rclone bisync /local/files MyCloud: --check-access --filters-file /path/to/bysync-filters.txt --log-file /path/to//bisync.log 2>&1
+  */5  *    *    *    *   /path/to/rclone bisync /local/files MyCloud: --check-access --filters-file /path/to/bysync-filters.txt --log-file /path/to//bisync.log
 ```
 
 See [crontab syntax](https://www.man7.org/linux/man-pages/man1/crontab.1p.html#INPUT_FILES)).
@@ -758,12 +752,12 @@ and stderr (via `2>&1`) to a log file.
 bisync can keep a local folder in sync with a cloud service,
 but what if you have some highly sensitive files to be synched?
 
-My usage of a cloud service is for exchanging both routine and sensitive
-personal files between my home network, my personal notebook when on the
-road, and with my work computer. The routine data is not sensitive.
-I have configured an rclone [crypt remote](/crypt/) to point to
-a subdirectory within the local disk tree that I bisync to Dropbox.
-I then set up an bisync for this local crypt directory to a directory
+Usage of a cloud service is for exchanging both routine and sensitive
+personal files between one's home network, one's personal notebook when on the
+road, and with one's work computer. The routine data is not sensitive.
+For the sensitive data, configure an rclone [crypt remote](/crypt/) to point to
+a subdirectory within the local disk tree that is bisync'd to Dropbox,
+and then set up an bisync for this local crypt directory to a directory
 outside of the main sync tree.
 
 ### Linux server setup
@@ -1070,6 +1064,11 @@ remote cloud. The file full path length was on average 35 characters
   files to be copied was dominated by the network bandwidth.
 
 ## References
+
+rclone's bisync implementation was derived from
+the [rclonesync-V2](https://github.com/cjnaz/rclonesync-V2) project,
+including documentation and test mechanisms,
+with [@cjnaz](https://github.com/cjnaz)'s full support and encouragement.
 
 `rclone bisync` is similar in nature to a range of other projects:
 
