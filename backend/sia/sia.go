@@ -49,8 +49,8 @@ func init() {
 			Required:   false,
 			IsPassword: true,
 		}, {
-			Name:     "sia_user_agent",
-			Help:     "Siad User Agent\nSia requires a 'Sia-Agent' user agent by default for security",
+			Name:     "user_agent",
+			Help:     "Siad User Agent\nSia requires the 'Sia-Agent' user agent by default for security",
 			Required: false,
 			Default:  "Sia-Agent",
 			Advanced: true,
@@ -73,7 +73,7 @@ func init() {
 type Options struct {
 	APIURL      string               `config:"api_url"`
 	APIPassword string               `config:"api_password"`
-	UserAgent   string               `config:"sia_user_agent"`
+	UserAgent   string               `config:"user_agent"`
 	Enc         encoder.MultiEncoder `config:"encoding"`
 }
 
