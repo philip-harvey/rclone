@@ -10,8 +10,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/rclone/rclone/fs"
-	"github.com/rclone/rclone/fs/cache"
-	"github.com/rclone/rclone/fs/fspath"
 	"github.com/rclone/rclone/fs/hash"
 	"github.com/rclone/rclone/fs/operations"
 	"github.com/rclone/rclone/lib/kv"
@@ -36,7 +34,6 @@ func (r *hashRecord) encode(key string) ([]byte, error) {
 		fs.Debugf(key, "hasher encoding %v: %v", r, err)
 		return nil, err
 	}
-	fs.Debugf(nil, "hasher encode %q = %v", key, r)
 	return buf.Bytes(), nil
 }
 
@@ -45,7 +42,6 @@ func (r *hashRecord) decode(key string, data []byte) error {
 		fs.Debugf(key, "hasher decoding %q failed: %v", data, err)
 		return err
 	}
-	fs.Debugf(nil, "hasher decode %q = %v", key, r)
 	return nil
 }
 
@@ -164,7 +160,7 @@ func (op *kvGet) Do(ctx context.Context, b kv.Bucket) error {
 	if err := r.decode(op.key, data); err != nil {
 		return errors.New("invalid record")
 	}
-	if r.Fp != anyFingerprint && r.Fp != op.fp {
+	if !(r.Fp == anyFingerprint || op.fp == anyFingerprint || r.Fp == op.fp) {
 		return errors.New("fingerprint changed")
 	}
 	if time.Since(r.Created) > op.age {
@@ -214,18 +210,16 @@ func (op *kvPut) Do(ctx context.Context, b kv.Bucket) (err error) {
 // kvDump: dump the database.
 // Note: long dump can cause concurrent operations to fail.
 type kvDump struct {
-	full bool
-	path string
-	fs   *Fs
+	full  bool
+	root  string
+	path  string
+	fs    *Fs
+	num   int
+	total int
 }
 
 func (op *kvDump) Do(ctx context.Context, b kv.Bucket) error {
-	f := op.fs
-	remoteFs, err := cache.Get(ctx, f.opt.Remote)
-	if err != nil {
-		return err
-	}
-	baseRoot := fspath.JoinRootPath(remoteFs.Root(), f.Root())
+	f, baseRoot, dbPath := op.fs, op.root, op.path
 
 	if op.full {
 		total := 0
@@ -239,13 +233,14 @@ func (op *kvDump) Do(ctx context.Context, b kv.Bucket) error {
 				fs.Errorf(nil, "%s: invalid record: %v", key, err)
 				return nil
 			}
-			fmt.Println(f.dumpLine(&r, key, include, err))
+			fmt.Println(f.dumpLine(&r, key, include, nil))
 			if include {
 				num++
 			}
 			return nil
 		})
-		fs.Infof(op.path, "%d records out of %d", num, total)
+		fs.Infof(dbPath, "%d records out of %d", num, total)
+		op.num, op.total = num, total // for unit tests
 		return nil
 	}
 
@@ -270,11 +265,12 @@ func (op *kvDump) Do(ctx context.Context, b kv.Bucket) error {
 		if key = strings.TrimPrefix(key[len(baseRoot):], "/"); key == "" {
 			key = "/"
 		}
-		fmt.Println(f.dumpLine(&r, key, true, err))
+		fmt.Println(f.dumpLine(&r, key, true, nil))
 		num++
 		bkey, data = cur.Next()
 	}
-	fs.Infof(op.path, "%d records", num)
+	fs.Infof(dbPath, "%d records", num)
+	op.num = num // for unit tests
 	return nil
 }
 

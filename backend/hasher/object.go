@@ -20,18 +20,23 @@ func (o *Object) getHash(ctx context.Context, hashType hash.Type) (string, error
 	if maxAge <= 0 {
 		return "", nil
 	}
-	key := path.Join(o.f.Fs.Root(), o.Remote())
 	fp := o.fingerprint(ctx)
 	if fp == "" {
 		return "", errors.New("fingerprint failed")
 	}
+	return o.f.getRawHash(ctx, hashType, o.Remote(), fp, maxAge)
+}
+
+// obtain hash for a path
+func (f *Fs) getRawHash(ctx context.Context, hashType hash.Type, remote, fp string, age time.Duration) (string, error) {
+	key := path.Join(f.Fs.Root(), remote)
 	op := &kvGet{
 		key:  key,
 		fp:   fp,
 		hash: hashType.String(),
-		age:  maxAge,
+		age:  age,
 	}
-	err := o.f.db.Do(false, op)
+	err := f.db.Do(false, op)
 	return op.val, err
 }
 

@@ -28,17 +28,7 @@ func (f *Fs) Command(ctx context.Context, name string, arg []string, opt map[str
 	case "drop":
 		return nil, f.db.Stop(true)
 	case "dump", "fulldump":
-		op := &kvDump{
-			full: name == "fulldump",
-			path: f.db.Path(),
-			fs:   f,
-		}
-		err := f.db.Do(false, op)
-		if err == kv.ErrEmpty {
-			fs.Infof(op.path, "empty")
-			err = nil
-		}
-		return nil, err
+		return nil, f.dbDump(ctx, name == "fulldump", "")
 	case "import", "stickyimport":
 		sticky := name == "stickyimport"
 		if len(arg) != 2 {
@@ -80,6 +70,28 @@ Usage Example:
     rclone backend stickyimport hasher:subdir md5 remote:path/to/sum.md5
 `,
 }}
+
+func (f *Fs) dbDump(ctx context.Context, full bool, root string) error {
+	if root == "" {
+		remoteFs, err := cache.Get(ctx, f.opt.Remote)
+		if err != nil {
+			return err
+		}
+		root = fspath.JoinRootPath(remoteFs.Root(), f.Root())
+	}
+	op := &kvDump{
+		full: full,
+		root: root,
+		path: f.db.Path(),
+		fs:   f,
+	}
+	err := f.db.Do(false, op)
+	if err == kv.ErrEmpty {
+		fs.Infof(op.path, "empty")
+		err = nil
+	}
+	return err
+}
 
 func (f *Fs) dbImport(ctx context.Context, hashName, sumRemote string, sticky bool) error {
 	var hashType hash.Type
